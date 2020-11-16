@@ -140,12 +140,7 @@ def main():
     engine_file_path = "yolov3.trt"
     # Download a dog image and save it to the following file path:
     #input_image_path = 'images/dog.jpg'
-    capture = cv2.VideoCapture(r"D:\b站下载视频\飙车.mp4")
 
-    fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    fps = capture.get(cv2.CAP_PROP_FPS)
-    size = (int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-    out = cv2.VideoWriter('camera_test.mp4', fourcc, fps, size)
 
     # Two-dimensional tuple with the target network's (spatial) input resolution in HW ordered
     input_resolution_yolov3_HW = (416, 416)
@@ -175,6 +170,12 @@ def main():
         # Do inference
         print('Running inference on image {}...'.format('input_image_path'))
         # Set host input to the image. The common.do_inference function will copy the input to the GPU before executing.
+        capture = cv2.VideoCapture(r"D:\b站下载视频\飙车.mp4")
+
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        fps = capture.get(cv2.CAP_PROP_FPS)
+        size = (int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+        out = cv2.VideoWriter('camera_test.mp4', fourcc, fps, size)
         fps=0
         while (True):
             t1 = time.time()
