@@ -156,70 +156,77 @@ def main():
     output_shapes = [(1, 255, 13, 13), (1, 255, 26, 26), (1, 255, 52, 52)]
     # Do inference with TensorRT
     trt_outputs = []
-    with get_engine(onnx_file_path, engine_file_path) as engine, engine.create_execution_context() as context:
-        inputs, outputs, bindings, stream = common.allocate_buffers(engine)
-        postprocessor_args = {"yolo_masks": [(6, 7, 8), (3, 4, 5), (0, 1, 2)],
-                              # A list of 3 three-dimensional tuples for the YOLO masks
-                              "yolo_anchors": [(10, 13), (16, 30), (33, 23), (30, 61), (62, 45),
-                                               # A list of 9 two-dimensional tuples for the YOLO anchors
-                                               (59, 119), (116, 90), (156, 198), (373, 326)],
-                              "obj_threshold": 0.6,  # Threshold for object coverage, float value between 0 and 1
-                              "nms_threshold": 0.5,
-                              # Threshold for non-max suppression algorithm, float value between 0 and 1
-                              "yolo_input_resolution": input_resolution_yolov3_HW}
-        # Do inference
-        print('Running inference on image {}...'.format('input_image_path'))
+    
+    
         # Set host input to the image. The common.do_inference function will copy the input to the GPU before executing.
-        capture = cv2.VideoCapture(r"D:\b站下载视频\飙车.mp4")
+    postprocessor_args = {"yolo_masks": [(6, 7, 8), (3, 4, 5), (0, 1, 2)],
+                          # A list of 3 three-dimensional tuples for the YOLO masks
+                          "yolo_anchors": [(10, 13), (16, 30), (33, 23), (30, 61), (62, 45),
+                                           # A list of 9 two-dimensional tuples for the YOLO anchors
+                                           (59, 119), (116, 90), (156, 198), (373, 326)],
+                          "obj_threshold": 0.6,  # Threshold for object coverage, float value between 0 and 1
+                          "nms_threshold": 0.5,
+                          # Threshold for non-max suppression algorithm, float value between 0 and 1
+                          "yolo_input_resolution": input_resolution_yolov3_HW}
+    
+    capture = cv2.VideoCapture(r"D:\b站下载视频\飙车.mp4")
 
-        fourcc = cv2.VideoWriter_fourcc(*'XVID')
-        fps = capture.get(cv2.CAP_PROP_FPS)
-        size = (int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-        out = cv2.VideoWriter('camera_test.mp4', fourcc, fps, size)
-        fps=0
-        while (True):
-            t1 = time.time()
-            ref, frame = capture.read()
-            # 格式转变，BGRtoRGB
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            # 转变成Image
-            frame = Image.fromarray(np.uint8(frame))
-            image_raw, image = preprocessor.process(frame)
-            shape_orig_WH = image_raw.size
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    fps = capture.get(cv2.CAP_PROP_FPS)
+    size = (int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+    out = cv2.VideoWriter('camera_test.mp4', fourcc, fps, size)
+    fps = 0
+    while (True):
+        t1 = time.time()
+        ref, frame = capture.read()
+        # 格式转变，BGRtoRGB
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # 转变成Image
+        frame = Image.fromarray(np.uint8(frame))
+        image_raw, image = preprocessor2.process(frame)
+        shape_orig_WH = image_raw.size
+        with get_engine(onnx_file_path, engine_file_path) as engine, engine.create_execution_context() as context:
+            inputs, outputs, bindings, stream = common.allocate_buffers(engine)
+    
+            # Do inference
+            print('Running inference on image {}...'.format('input_image_path'))
+
             inputs[0].host = image
-            trt_outputs = common.do_inference_v2(context, bindings=bindings, inputs=inputs, outputs=outputs, stream=stream)
+            trt_outputs = common.do_inference_v2(context, bindings=bindings, inputs=inputs, outputs=outputs,
+                                             stream=stream)
+    
+        # Before doing post-processing, we need to reshape the outputs as the common.do_inference will give us flat arrays.
+        trt_outputs = [output.reshape(shape) for output, shape in zip(trt_outputs, output_shapes)]
+    
+        # postprocessor_args = {"yolo_masks": [(6, 7, 8), (3, 4, 5), (0, 1, 2)],                    # A list of 3 three-dimensional tuples for the YOLO masks
+        #                       "yolo_anchors": [(10, 13), (16, 30), (33, 23), (30, 61), (62, 45),  # A list of 9 two-dimensional tuples for the YOLO anchors
+        #                                        (59, 119), (116, 90), (156, 198), (373, 326)],
+        #                       "obj_threshold": 0.6,                                               # Threshold for object coverage, float value between 0 and 1
+        #                       "nms_threshold": 0.5,                                               # Threshold for non-max suppression algorithm, float value between 0 and 1
+        #                       "yolo_input_resolution": input_resolution_yolov3_HW}
+    
+        postprocessor = PostprocessYOLO(**postprocessor_args)
+    
+        # Run the post-processing algorithms on the TensorRT outputs and get the bounding box details of detected objects
+        boxes, classes, scores = postprocessor.process(trt_outputs, (shape_orig_WH))
+        # Draw the bounding boxes onto the original input image and save it as a PNG file
+        obj_detected_img = draw_bboxes(image_raw, boxes, scores, classes, ALL_CATEGORIES)
+    
+        frame = cv2.cvtColor(obj_detected_img, cv2.COLOR_RGB2BGR)
+        fps = (fps + (1. / (time.time() - t1))) / 2
+        print("fps= %.2f" % (fps))
+        frame = cv2.putText(frame, "fps= %.2f" % (fps), (0, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        out.write(frame)
+        cv2.imshow("video", frame)
+    
+        c = cv2.waitKey(1) & 0xff
+        if c == 27:
+            capture.release()
+            break
+        # output_image_path = 'dog_bboxes.png'
+        # obj_detected_img.save(output_image_path, 'PNG')
+        print('Saved image with bounding boxes of detected objects to {}.'.format('output_image_path'))
 
-    # Before doing post-processing, we need to reshape the outputs as the common.do_inference will give us flat arrays.
-            trt_outputs = [output.reshape(shape) for output, shape in zip(trt_outputs, output_shapes)]
-
-    # postprocessor_args = {"yolo_masks": [(6, 7, 8), (3, 4, 5), (0, 1, 2)],                    # A list of 3 three-dimensional tuples for the YOLO masks
-    #                       "yolo_anchors": [(10, 13), (16, 30), (33, 23), (30, 61), (62, 45),  # A list of 9 two-dimensional tuples for the YOLO anchors
-    #                                        (59, 119), (116, 90), (156, 198), (373, 326)],
-    #                       "obj_threshold": 0.6,                                               # Threshold for object coverage, float value between 0 and 1
-    #                       "nms_threshold": 0.5,                                               # Threshold for non-max suppression algorithm, float value between 0 and 1
-    #                       "yolo_input_resolution": input_resolution_yolov3_HW}
-
-            postprocessor = PostprocessYOLO(**postprocessor_args)
-
-    # Run the post-processing algorithms on the TensorRT outputs and get the bounding box details of detected objects
-            boxes, classes, scores = postprocessor.process(trt_outputs, (shape_orig_WH))
-    # Draw the bounding boxes onto the original input image and save it as a PNG file
-            obj_detected_img = draw_bboxes(image_raw, boxes, scores, classes, ALL_CATEGORIES)
-            
-            frame = cv2.cvtColor(obj_detected_img, cv2.COLOR_RGB2BGR)
-            fps = (fps + (1. / (time.time() - t1))) / 2
-            print("fps= %.2f" % (fps))
-            frame = cv2.putText(frame, "fps= %.2f" % (fps), (0, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            out.write(frame)
-            cv2.imshow("video", frame)
-
-            c = cv2.waitKey(1) & 0xff
-            if c == 27:
-                capture.release()
-                break
-            #output_image_path = 'dog_bboxes.png'
-            #obj_detected_img.save(output_image_path, 'PNG')
-            print('Saved image with bounding boxes of detected objects to {}.'.format('output_image_path'))
 
 if __name__ == '__main__':
     main()
