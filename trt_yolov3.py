@@ -45,6 +45,11 @@ def loop_and_detect(cam, trt_yolov3, conf_th, vis):
       conf_th: confidence/score threshold for object detection.
       vis: for visualization.
     """
+
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    fps = cam.get(cv2.CAP_PROP_FPS)
+    size = (int(cam.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cam.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+    out = cv2.VideoWriter('camera_test.avi', fourcc, fps, size)
     full_scrn = False
     fps = 0.0
     tic = time.time()
@@ -62,13 +67,16 @@ def loop_and_detect(cam, trt_yolov3, conf_th, vis):
             # calculate an exponentially decaying average of fps number
             fps = curr_fps if fps == 0.0 else (fps*0.95 + curr_fps*0.05)
             tic = toc
+            
+            #img = cv2.putText(img, "fps= %.2f" % (fps), (0, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            out.write(img)
         key = cv2.waitKey(1)
         if key == 27:  # ESC key: quit program
             break
         elif key == ord('F') or key == ord('f'):  # Toggle fullscreen
             full_scrn = not full_scrn
             set_display(WINDOW_NAME, full_scrn)
-
+ 
 
 def main():
     args = parse_args()
@@ -85,7 +93,10 @@ def main():
     open_window(WINDOW_NAME, args.image_width, args.image_height,
                 'Camera TensorRT YOLOv3 Demo')
     vis = BBoxVisualization(cls_dict)
+
+    
     loop_and_detect(cam, trt_yolov3, conf_th=0.3, vis=vis)
+   
 
     cam.stop()
     cam.release()
